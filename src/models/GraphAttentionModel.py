@@ -1,4 +1,4 @@
-"""Defines the mgraph attention encoder model"""
+"""Defines the graph attention encoder model"""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -26,15 +26,12 @@ class EncoderStack(tf.keras.layers.Layer):
     def __init__(self, args):
         super(EncoderStack, self).__init__()
         self.args = args
-        self.layers = []
-        self.node_role_layer = tf.keras.layers.Dense(args.hidden_size,
-                                                     input_shape=(2 * args.hidden_size,))
+        self.node_role_layer = tf.keras.layers.Dense(args.hidden_size, input_shape=(2 * args.hidden_size,))
 
+        self.layers = []
         for _ in range(args.enc_layers):
-            self_attention_layer = AttentionLayer.SelfAttention(
-                args.hidden_size, args.num_heads, args.dropout)
-            feed_forward_network = ffn_layer.FeedForwardNetwork(
-                args.hidden_size, args.filter_size, args.dropout)
+            self_attention_layer = AttentionLayer.SelfAttention(args.hidden_size, args.num_heads, args.dropout)
+            feed_forward_network = ffn_layer.FeedForwardNetwork(args.hidden_size, args.filter_size, args.dropout)
 
             self.layers.append([
                 PrePostProcessingWrapper(self_attention_layer, args),
@@ -43,28 +40,22 @@ class EncoderStack(tf.keras.layers.Layer):
 
         self.output_normalization = LayerNormalization(args.hidden_size)
 
-    def get_config(self):
-        return {
-            "args": self.args,
-        }
-
-    def call(self, node_tensor, label_tensor, node1_tensor, node2_tensor,
-             attention_bias, inputs_padding, training):
-        edge_tensor = tf.concat([node1_tensor, node2_tensor], 2)
+    def call(self, node_tensor, label_tensor, node1_tensor, node2_tensor, attention_bias, inputs_padding, training):
+        edge_tensor = tf.concat([node1_tensor, node2_tensor], axis=2)
         edge_tensor = self.node_role_layer(edge_tensor)
+        
         node_tensor = tf.add(node_tensor, tf.add(edge_tensor, label_tensor))
 
         for n, layer in enumerate(self.layers):
-            # Run inputs through the sublayers.
             self_attention_layer = layer[0]
             feed_forward_network = layer[1]
-            with tf.name_scope("layer_%d" % n):
+
+            with tf.name_scope(f"layer_{n}"):
                 with tf.name_scope("self_attention"):
-                    node_tensor = self_attention_layer(
-                        node_tensor, attention_bias, training=training)
+                    node_tensor = self_attention_layer(node_tensor, attention_bias, training=training)
+
                 with tf.name_scope("ffn"):
-                    node_tensor = feed_forward_network(
-                        node_tensor, training=training)
+                    node_tensor = feed_forward_network(node_tensor, training=training)
 
         return self.output_normalization(node_tensor)
 
@@ -171,58 +162,66 @@ class TransGAT(tf.keras.Model):
         top_scores = scores[:, 0]
         return {"outputs": top_decoded_ids, "scores": top_scores}
 
-    def call(self, nodes, labels, node1, node2, targ, mask):
+    
+    def call(self, nodes, labels, node1, node2, targ, mask=None, training=None):
         """
         Puts the tensors through encoders and decoders
-        :param adj: Adjacency matrices of input example
-        :type adj: tf.tensor
         :param nodes: node features
-        :type nodes: tf.tensor
+        :type nodes: tf.Tensor
+        :param labels: label features
+        :type labels: tf.Tensor
+        :param node1: node1 features
+        :type node1: tf.Tensor
+        :param node2: node2 features
+        :type node2: tf.Tensor
         :param targ: target sequences
-        :type targ: tf.tensor
+        :type targ: tf.Tensor
+        :param mask: mask sequences
+        :type mask: tf.Tensor
+        :param training: Whether the model is in training mode, defaults to None
+        :type training: bool, optional
         :return: output probability distribution
-        :rtype: tf.tensor
+        :rtype: tf.Tensor
         """
         node_tensor = self.emb_layer(nodes)
         label_tensor = tf.cast(self.emb_layer(labels), dtype=tf.float32)
         node1_tensor = tf.cast(self.emb_layer(node1), dtype=tf.float32)
         node2_tensor = tf.cast(self.emb_layer(node2), dtype=tf.float32)
+        
+        # Pad shorter sequences to match the length of node_tensor
+        max_length = tf.shape(node_tensor)[1]
+        label_tensor = tf.pad(label_tensor, [[0, 0], [0, max_length - tf.shape(label_tensor)[1]], [0, 0]])
+        node1_tensor = tf.pad(node1_tensor, [[0, 0], [0, max_length - tf.shape(node1_tensor)[1]], [0, 0]])
+        node2_tensor = tf.pad(node2_tensor, [[0, 0], [0, max_length - tf.shape(node2_tensor)[1]], [0, 0]])
+        
         attention_bias = get_padding_bias(nodes)
         attention_bias = tf.cast(attention_bias, tf.float32)
         inputs_padding = get_padding(node_tensor)
 
         enc_output = self.encoder(node_tensor, label_tensor, node1_tensor, node2_tensor,
-                                  attention_bias, inputs_padding, self.trainable)
+                                attention_bias, inputs_padding, training=training)
 
         if targ is not None:
             decoder_inputs = tf.cast(self.tgt_emb_layer(targ), dtype=tf.float32)
         else:
-            predictions = self.predict(enc_output, attention_bias, False)
+            predictions = self.predict(enc_output, attention_bias, training=training)
             return predictions
 
         with tf.name_scope("shift_targets"):
             # Shift targets to the right, and remove the last element
-            decoder_inputs = tf.pad(decoder_inputs,
-                                    [[0, 0], [1, 0], [0, 0]])[:, :-1, :]
+            decoder_inputs = tf.pad(decoder_inputs, [[0, 0], [1, 0], [0, 0]])[:, :-1, :]
         attention_bias = tf.cast(attention_bias, tf.float32)
         with tf.name_scope("add_pos_encoding"):
             length = tf.shape(decoder_inputs)[1]
-            pos_encoding = get_position_encoding(
-                length, self.args.hidden_size)
+            pos_encoding = get_position_encoding(length, self.args.hidden_size)
             pos_encoding = tf.cast(pos_encoding, tf.float32)
             decoder_inputs += pos_encoding
-        if self.trainable:
-            decoder_inputs = tf.nn.dropout(
-                decoder_inputs, rate=self.args.dropout)
+        if training:
+            decoder_inputs = tf.nn.dropout(decoder_inputs, rate=self.args.dropout)
 
-        decoder_self_attention_bias = get_decoder_self_attention_bias(
-            length, dtype=tf.float32)
-        outputs = self.decoder_stack(
-            decoder_inputs,
-            enc_output,
-            decoder_self_attention_bias,
-            attention_bias,
-            training=self.trainable)
+        decoder_self_attention_bias = get_decoder_self_attention_bias(length, dtype=tf.float32)
+        outputs = self.decoder_stack(decoder_inputs, enc_output, decoder_self_attention_bias,
+                                    attention_bias, training=training)
 
         logits = self.tgt_emb_layer(outputs, mode="linear")
         logits = tf.cast(logits, tf.float32)

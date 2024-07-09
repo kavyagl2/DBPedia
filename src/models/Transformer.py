@@ -55,36 +55,39 @@ class LayerNormalization(tf.keras.layers.Layer):
 
 
 class PrePostProcessingWrapper(tf.keras.layers.Layer):
-  """Wrapper class that applies layer pre-processing and post-processing."""
+    """Wrapper class that applies layer pre-processing and post-processing."""
 
-  def __init__(self, layer, args):
-    super(PrePostProcessingWrapper, self).__init__()
-    self.layer = layer
-    self.args = args
-    self.postprocess_dropout = args.dropout
-    self.layer_norm = LayerNormalization(args.hidden_size)
+    def __init__(self, layer, args):
+        super(PrePostProcessingWrapper, self).__init__()
+        self.layer = layer
+        self.args = args
+        self.postprocess_dropout = args.dropout
+        self.layer_norm = LayerNormalization(args.hidden_size)
 
-  def get_config(self):
-    return {
-      "params": self.params,
-    }
+    def get_config(self):
+        return {
+            "params": self.args,
+        }
 
-  def call(self, x, *args, **kwargs):
-    """Calls wrapped layer with same parameters."""
-    # Preprocessing: apply layer normalization
-    training = kwargs["training"]
-
-    y = self.layer_norm(x)
-
-    # Get layer output
-    y = self.layer(y, *args, **kwargs)
-
-    # Postprocessing: apply dropout and residual connection
-    if training:
-      y = tf.nn.dropout(y, rate=self.postprocess_dropout)
-
-    return x + y
-
+    def call(self, x, *args, **kwargs):
+        """Calls wrapped layer with same parameters."""
+        # Preprocessing: apply layer normalization
+        training = kwargs.get("training", None)
+        
+        y = self.layer_norm(x)
+        
+        # Get layer output
+        y = self.layer(y, *args, **kwargs, training=training)
+        
+        # Postprocessing: apply dropout and residual connection
+        if training:
+            y = tf.nn.dropout(y, rate=self.postprocess_dropout)
+        
+        return x + y
+    
+    def build(self, input_shape):
+      super().build(input_shape)  # Call base class build
+      self.layer.build(input_shape)
 
 class Transformer(tf.keras.Model):
   """Transformer model with Keras.

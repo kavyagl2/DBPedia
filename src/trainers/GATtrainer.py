@@ -85,18 +85,18 @@ def _train_gat_trans(args):
         steps = args.steps
 
     def train_step(nodes, labels, node1, node2, targ):
-      with tf.GradientTape() as tape:
-        predictions = model(nodes=nodes, labels=labels, node1=node1, node2=node2, targ=targ, mask=None)
-        predictions = model.metric_layer([predictions, targ])
-        batch_loss = loss_layer([predictions, targ])
+        with tf.GradientTape() as tape:
+            predictions = model(nodes=nodes, labels=labels, node1=node1, node2=node2, targ=targ, mask=None)
+            predictions = model.metric_layer([predictions, targ])
+            batch_loss = loss_layer([predictions, targ])
 
-      gradients = tape.gradient(batch_loss, model.trainable_weights)
-      optimizer.apply_gradients(zip(gradients, model.trainable_weights))
-      acc = model.metrics[0].result()
-      ppl = model.metrics[-1].result()
-      train_loss(batch_loss)  # Update the train_loss metric
-      
-      return batch_loss, acc, ppl
+        gradients = tape.gradient(batch_loss, model.trainable_weights)
+        optimizer.apply_gradients(zip(gradients, model.trainable_weights))
+        acc = model.metrics[0].result()
+        ppl = model.metrics[-1].result()
+        train_loss(batch_loss)  # Update the train_loss metric
+
+        return batch_loss, acc, ppl
 
     def eval_step(steps=None):
         model.trainable = False

@@ -1,5 +1,3 @@
-"""Implementation of embedding layer with shared weights."""
-
 import tensorflow as tf
 
 class EmbeddingSharedWeights(tf.keras.layers.Layer):
@@ -22,11 +20,12 @@ class EmbeddingSharedWeights(tf.keras.layers.Layer):
             # Create and initialize weights. The random normal initializer was chosen
             # arbitrarily, and works well.
             self.shared_weights = self.add_weight(
-                "weights",
+                name="weights",  # Add name for clarity
                 shape=[self.vocab_size, self.hidden_size],
                 dtype="float32",
                 initializer=tf.random_normal_initializer(
-                    mean=0., stddev=self.hidden_size ** -0.5))
+                    mean=0., stddev=self.hidden_size ** -0.5)
+            )
         super(EmbeddingSharedWeights, self).build(input_shape)
 
     def get_config(self):
@@ -58,6 +57,8 @@ class EmbeddingSharedWeights(tf.keras.layers.Layer):
     def _embedding(self, inputs):
         """Applies embedding based on inputs tensor."""
         with tf.name_scope("embedding"):
+            # Ensure inputs are of integer type
+            inputs = tf.cast(inputs, tf.int32)
             # Create binary mask of size [batch_size, length]
             mask = tf.cast(tf.not_equal(inputs, 0), tf.float32)
             embeddings = tf.gather(self.shared_weights, inputs)
