@@ -28,8 +28,7 @@ class TrackableOptimizer(tf.Module):
 
 def _train_gat_trans(args):
     # set up dirs
-    (OUTPUT_DIR, EvalResultsFile,
-     TestResults, log_file, log_dir) = _set_up_dirs(args)
+    (OUTPUT_DIR, EvalResultsFile, TestResults, log_file, log_dir) = _set_up_dirs(args)
 
     # Load the eval src and tgt files for evaluation
     reference = open(args.eval_ref, 'r')
@@ -39,7 +38,7 @@ def _train_gat_trans(args):
 
     (dataset, eval_set, test_set, BUFFER_SIZE, BATCH_SIZE, steps_per_epoch,
      src_vocab_size, src_vocab, tgt_vocab_size, tgt_vocab, max_length_targ, dataset_size) = GetGATDataset(args)
-
+    
     # Initialize model and loss
     model = TransGAT(args, src_vocab_size, src_vocab, tgt_vocab, tgt_vocab_size, max_length_targ)
     loss_layer = LossLayer(tgt_vocab_size, 0.1)
@@ -84,20 +83,28 @@ def _train_gat_trans(args):
     else:
         steps = args.steps
 
-    def train_step(nodes, labels, node1, node2, targ):
+    def train_step(nodes, labels, node1, node2, trg_input, trg_output, training=True):
         with tf.GradientTape() as tape:
-            predictions = model(nodes=nodes, labels=labels, node1=node1, node2=node2, targ=targ, mask=None)
-            predictions = model.metric_layer([predictions, targ])
-            batch_loss = loss_layer([predictions, targ])
+            predictions, metrics = model(
+                node_tensor=nodes, 
+                label_tensor=labels, 
+                node1_tensor=node1, 
+                node2_tensor=node2, 
+                adj_tensor=None,  # Provide the actual adjacency tensor if available
+                trg_input=trg_input, 
+                trg_output=trg_output, 
+                training=training
+            )
+            loss = metrics['loss']
+        
+        gradients = tape.gradient(loss, model.trainable_variables)
+        optimizer.apply_gradients(zip(gradients, model.trainable_variables))
 
-        gradients = tape.gradient(batch_loss, model.trainable_weights)
-        optimizer.apply_gradients(zip(gradients, model.trainable_weights))
-        acc = model.metrics[0].result()
-        ppl = model.metrics[-1].result()
-        train_loss(batch_loss)  # Update the train_loss metric
+        acc = metrics['accuracy']
+        ppl = metrics['perplexity']
 
-        return batch_loss, acc, ppl
-
+        return loss, acc, ppl
+        
     def eval_step(steps=None):
         model.trainable = False
         results = []
@@ -165,12 +172,12 @@ def _train_gat_trans(args):
     if args.mode == 'train':
         train_loss.reset_state()
 
-        for batch, (nodes, labels, node1, node2, targ) in tqdm(enumerate(dataset.repeat(-1))):
+        for batch, (nodes, labels, node1, node2,trg_output,targ) in tqdm(enumerate(dataset.repeat(-1))):
             if PARAMS['step'] < steps:
                 start = time.time()
                 PARAMS['step'] += 1
 
-                batch_loss, acc, ppl = train_step(nodes, labels, node1, node2, targ)
+                batch_loss, acc, ppl = train_step(nodes, labels, node1, node2, trg_output, targ)
                 if batch % 100 == 0:
                     print('Step {} Learning Rate {:.4f} Train Loss {:.4f} '
                           'Accuracy {:.4f} Perplex {:.4f}'.format(PARAMS['step'],

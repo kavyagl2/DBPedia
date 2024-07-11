@@ -14,7 +14,6 @@ from src.utils.TransformerUtils import get_padding, get_decoder_self_attention_b
 from src.utils import beam_search
 from src.utils.metrics import MetricLayer
 
-
 class EncoderStack(tf.keras.layers.Layer):
     """Transformer encoder stack.
     The encoder stack is made up of N identical src.layers. Each layer is composed
@@ -26,7 +25,7 @@ class EncoderStack(tf.keras.layers.Layer):
     def __init__(self, args):
         super(EncoderStack, self).__init__()
         self.args = args
-        self.node_role_layer = tf.keras.layers.Dense(args.hidden_size, input_shape=(2 * args.hidden_size,))
+        self.node_role_layer = tf.keras.layers.Dense(args.hidden_size)
 
         self.layers = []
         for _ in range(args.enc_layers):
@@ -58,7 +57,6 @@ class EncoderStack(tf.keras.layers.Layer):
                     node_tensor = feed_forward_network(node_tensor, training=training)
 
         return self.output_normalization(node_tensor)
-
 
 class TransGAT(tf.keras.Model):
     """
@@ -146,84 +144,67 @@ class TransGAT(tf.keras.Model):
         }
         cache["encoder_outputs"] = encoder_outputs
         cache["encoder_decoder_attention_bias"] = encoder_decoder_attention_bias
-        # Use beam search to find the top beam_size sequences and scores.
+
         decoded_ids, scores = beam_search.sequence_beam_search(
             symbols_to_logits_fn=symbols_to_logits_fn,
             initial_ids=initial_ids,
             initial_cache=cache,
             vocab_size=self.vocab_tgt_size,
             beam_size=self.args.beam_size,
-            alpha=self.args.beam_alpha,
+            alpha=self.args.alpha,
             max_decode_length=max_decode_length,
-            eos_id=6)
-
-        # Get the top sequence for each batch element
+            eos_id=1)
         top_decoded_ids = decoded_ids[:, 0, 1:]
         top_scores = scores[:, 0]
-        return {"outputs": top_decoded_ids, "scores": top_scores}
+        return {
+            "outputs": top_decoded_ids,
+            "scores": top_scores
+        }
 
-    
-    def call(self, nodes, labels, node1, node2, targ, mask=None, training=None):
-        """
-        Puts the tensors through encoders and decoders
-        :param nodes: node features
-        :type nodes: tf.Tensor
-        :param labels: label features
-        :type labels: tf.Tensor
-        :param node1: node1 features
-        :type node1: tf.Tensor
-        :param node2: node2 features
-        :type node2: tf.Tensor
-        :param targ: target sequences
-        :type targ: tf.Tensor
-        :param mask: mask sequences
-        :type mask: tf.Tensor
-        :param training: Whether the model is in training mode, defaults to None
-        :type training: bool, optional
-        :return: output probability distribution
-        :rtype: tf.Tensor
-        """
-        node_tensor = self.emb_layer(nodes)
-        label_tensor = tf.cast(self.emb_layer(labels), dtype=tf.float32)
-        node1_tensor = tf.cast(self.emb_layer(node1), dtype=tf.float32)
-        node2_tensor = tf.cast(self.emb_layer(node2), dtype=tf.float32)
-        
-        # Pad shorter sequences to match the length of node_tensor
-        max_length = tf.shape(node_tensor)[1]
-        label_tensor = tf.pad(label_tensor, [[0, 0], [0, max_length - tf.shape(label_tensor)[1]], [0, 0]])
-        node1_tensor = tf.pad(node1_tensor, [[0, 0], [0, max_length - tf.shape(node1_tensor)[1]], [0, 0]])
-        node2_tensor = tf.pad(node2_tensor, [[0, 0], [0, max_length - tf.shape(node2_tensor)[1]], [0, 0]])
-        
-        attention_bias = get_padding_bias(nodes)
-        attention_bias = tf.cast(attention_bias, tf.float32)
-        inputs_padding = get_padding(node_tensor)
+    def call(self, node_tensor, label_tensor, node1_tensor, node2_tensor, 
+             adj_tensor, trg_input, trg_output, training):
+        """Return predicted sequence and metrics."""
+        with tf.name_scope("graph_encoder"):
+            attention_bias = get_padding_bias(adj_tensor)
+            inputs_padding = get_padding(adj_tensor)
 
-        enc_output = self.encoder(node_tensor, label_tensor, node1_tensor, node2_tensor,
-                                attention_bias, inputs_padding, training=training)
+            encoder_outputs = self.encoder(
+                node_tensor, label_tensor, node1_tensor, node2_tensor, 
+                attention_bias, inputs_padding, training)
 
-        if targ is not None:
-            decoder_inputs = tf.cast(self.tgt_emb_layer(targ), dtype=tf.float32)
-        else:
-            predictions = self.predict(enc_output, attention_bias, training=training)
-            return predictions
+        with tf.name_scope("targets"):
+            targets = tf.cast(trg_output, tf.int32)
+            target_weights = tf.cast(tf.not_equal(targets, 0), tf.float32)
 
-        with tf.name_scope("shift_targets"):
-            # Shift targets to the right, and remove the last element
-            decoder_inputs = tf.pad(decoder_inputs, [[0, 0], [1, 0], [0, 0]])[:, :-1, :]
-        attention_bias = tf.cast(attention_bias, tf.float32)
-        with tf.name_scope("add_pos_encoding"):
-            length = tf.shape(decoder_inputs)[1]
-            pos_encoding = get_position_encoding(length, self.args.hidden_size)
-            pos_encoding = tf.cast(pos_encoding, tf.float32)
-            decoder_inputs += pos_encoding
-        if training:
-            decoder_inputs = tf.nn.dropout(decoder_inputs, rate=self.args.dropout)
+        with tf.name_scope("logits"):
+            # Save shape to facilitate restoring the encoder-decoder attention bias.
+            max_target_length = tf.shape(trg_input)[1]
 
-        decoder_self_attention_bias = get_decoder_self_attention_bias(length, dtype=tf.float32)
-        outputs = self.decoder_stack(decoder_inputs, enc_output, decoder_self_attention_bias,
-                                    attention_bias, training=training)
+            decoder_self_attention_bias = get_decoder_self_attention_bias(
+                max_target_length)
+            decoder_inputs = self.tgt_emb_layer(trg_input)
+            decoder_inputs += get_position_encoding(
+                tf.shape(decoder_inputs)[1], self.args.emb_dim)
 
-        logits = self.tgt_emb_layer(outputs, mode="linear")
-        logits = tf.cast(logits, tf.float32)
+            # Run the decoder stack
+            outputs = self.decoder_stack(
+                decoder_inputs,
+                encoder_outputs,
+                decoder_self_attention_bias,
+                attention_bias,
+                training=training)
+            logits = self.tgt_emb_layer(outputs, mode="linear")
 
-        return logits
+        with tf.name_scope("metrics"):
+            metrics = self.metric_layer(logits, targets, target_weights)
+
+        return logits, metrics
+
+    def get_config(self):
+        return {
+            "args": self.args,
+            "src_vocab_size": self.emb_layer.vocab_size,
+            "tgt_vocab_size": self.tgt_emb_layer.vocab_size,
+            "max_len": self.max_len,
+            "tgt_vocab": self.vocab_tgt_size
+        }
