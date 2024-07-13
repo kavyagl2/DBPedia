@@ -137,8 +137,9 @@ class MetricLayer(tf.keras.layers.Layer):
   def call(self, inputs):
     logits, targets = inputs[0], inputs[1]
     for mean, fn in self.metric_mean_fns:
-      m = mean(*fn(logits, targets))
-      self.add_metric(m)
+      value, weight = fn(logits, targets)
+      mean.update_state(value, sample_weight=weight)
+      self.add_metric(mean.result())
     return logits
 
 

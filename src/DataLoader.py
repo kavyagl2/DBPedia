@@ -8,8 +8,7 @@ import pickle
 import sentencepiece as spm
 import tensorflow as tf
 
-from src.utils.model_utils import max_length, _tensorize, get_padding as padding
-
+from src.utils.model_utils import max_length, _tensorize, Padding as padding
 
 def LoadDataset(train_path, eval_path, test_path,
                 vocab_path, sentencepiece):

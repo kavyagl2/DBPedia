@@ -20,4 +20,4 @@ if __name__ == "__main__":
     _train_transformer(args)
 
   elif ((args.enc_type == "gat") and (args.dec_type == "transformer")):
-    _train_gat_trans(args)
+    _train_gat_trans(args=args)

@@ -1,9 +1,7 @@
 """
 Initializes GAT trainer and trains the model
 """
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from __future__ import absolute_import, division, print_function
 
 import os
 import pickle
@@ -19,16 +17,10 @@ from src.utils.model_utils import CustomSchedule, _set_up_dirs
 from src.utils.rogue import rouge_n
 from src.utils.model_utils import process_results
 
-class TrackableOptimizer(tf.Module):
-    def __init__(self, optimizer):
-        self.optimizer = optimizer
-
-    def __call__(self):
-        return self.optimizer
 
 def _train_gat_trans(args):
-    # set up dirs
-    (OUTPUT_DIR, EvalResultsFile, TestResults, log_file, log_dir) = _set_up_dirs(args)
+    # Set up directories
+    OUTPUT_DIR, EvalResultsFile, TestResults, log_file, log_dir = _set_up_dirs(args)
 
     # Load the eval src and tgt files for evaluation
     reference = open(args.eval_ref, 'r')
@@ -38,23 +30,20 @@ def _train_gat_trans(args):
 
     (dataset, eval_set, test_set, BUFFER_SIZE, BATCH_SIZE, steps_per_epoch,
      src_vocab_size, src_vocab, tgt_vocab_size, tgt_vocab, max_length_targ, dataset_size) = GetGATDataset(args)
-    
-    # Initialize model and loss
-    model = TransGAT(args, src_vocab_size, src_vocab, tgt_vocab, tgt_vocab_size, max_length_targ)
+
+    model = TransGAT(args, src_vocab_size, src_vocab, tgt_vocab_size, max_length_targ, tgt_vocab)
     loss_layer = LossLayer(tgt_vocab_size, 0.1)
 
-    # Initialize optimizer
     if args.decay is not None:
-        learning_rate = CustomSchedule(args.emb_dim, warmup_steps=args.decay_steps)
+        learning_rate = CustomSchedule(d_model=128)
+        optimizer = tf.keras.optimizers.Adam(learning_rate=0.001, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
     else:
-        learning_rate = args.learning_rate
-
-    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
-    trackable_optimizer = TrackableOptimizer(optimizer)
+        optimizer = tf.keras.optimizers.Adam(learning_rate=args.learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
 
     # Save model parameters for future use
-    if os.path.isfile('{}/{}_{}_params'.format(log_dir, args.lang, args.model)):
-        with open('{}/{}_{}_params'.format(log_dir, args.lang, args.model), 'rb') as fp:
+    params_path = f'{log_dir}/{args.lang}_{args.model}_params'
+    if os.path.isfile(params_path):
+        with open(params_path, 'rb') as fp:
             PARAMS = pickle.load(fp)
             print('Loaded Parameters..')
     else:
@@ -70,9 +59,10 @@ def _train_gat_trans(args):
         }
 
     train_loss = tf.keras.metrics.Mean(name='train_loss')
+    train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name='train_accuracy')
 
-    # Define checkpoint manager
-    ckpt = tf.train.Checkpoint(model=model, optimizer=trackable_optimizer)
+    # Create a checkpoint object
+    ckpt = tf.train.Checkpoint(model=model)
     ckpt_manager = tf.train.CheckpointManager(ckpt, OUTPUT_DIR, max_to_keep=5)
     if ckpt_manager.latest_checkpoint:
         ckpt.restore(ckpt_manager.latest_checkpoint).expect_partial()
@@ -83,101 +73,97 @@ def _train_gat_trans(args):
     else:
         steps = args.steps
 
-    def train_step(nodes, labels, node1, node2, trg_input, trg_output, training=True):
-        with tf.GradientTape() as tape:
-            predictions, metrics = model(
-                node_tensor=nodes, 
-                label_tensor=labels, 
-                node1_tensor=node1, 
-                node2_tensor=node2, 
-                adj_tensor=None,  # Provide the actual adjacency tensor if available
-                trg_input=trg_input, 
-                trg_output=trg_output, 
-                training=training
-            )
-            loss = metrics['loss']
-        
-        gradients = tape.gradient(loss, model.trainable_variables)
-        optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+    def train_step(nodes, labels, node1, node2, targ):
+      with tf.GradientTape() as tape:
+          predictions = model(nodes, labels, node1, node2, targ, mask=None, training=True)  # Updated line
+          predictions = model.metric_layer([predictions, targ])
+          batch_loss = loss_layer([predictions, targ])
 
-        acc = metrics['accuracy']
-        ppl = metrics['perplexity']
+      gradients = tape.gradient(batch_loss, model.trainable_weights)
+      optimizer.apply_gradients(zip(gradients, model.trainable_weights))
+      acc = model.metrics[0].result()
+      ppl = model.metrics[-1].result()
+      batch_loss = train_loss(batch_loss)
 
-        return loss, acc, ppl
-        
+      return batch_loss, acc, ppl
+
     def eval_step(steps=None):
-        model.trainable = False
-        results = []
-        ref_target = []
-        eval_results = open(EvalResultsFile, 'w+')
-        eval_set_iter = eval_set if steps is None else eval_set.take(steps)
+      model.trainable = False
+      results = []
+      ref_target = []
+      eval_results = open(EvalResultsFile, 'w+')
+      dev_set = eval_set if steps is None else eval_set.take(steps)
 
-        for batch, (nodes, labels, node1, node2, targets) in tqdm(enumerate(eval_set_iter)):
-            predictions = model(nodes, labels, node1, node2, targ=None, mask=None)
-            pred = predictions['outputs'].numpy().tolist()
+      for batch, (nodes, labels, node1, node2, targets) in tqdm(enumerate(dev_set)):
+          predictions = model(nodes, labels, node1, node2, targ=None, mask=None, training=False)  # Updated line
+          pred = [(predictions['outputs'].numpy().tolist())]
 
-            if args.sentencepiece == 'True':
-                for i in range(len(pred)):
-                    sentence = tgt_vocab.DecodeIds(list(pred[i]))
-                    sentence = sentence.partition("<start>")[2].partition("<end>")[0]
-                    eval_results.write(sentence + '\n')
-                    ref_target.append(reference.readline())
-                    results.append(sentence)
-            else:
-                for i in pred:
-                    sentences = tgt_vocab.sequences_to_texts([i])
-                    sentence = [j.partition("<start>")[2].partition("<end>")[0] for j in sentences]
-                    eval_results.write(sentence[0] + '\n')
-                    ref_target.append(reference.readline())
-                    results.append(sentence[0])
+          if args.sentencepiece == 'True':
+              for i in range(len(pred[0])):
+                  sentence = tgt_vocab.DecodeIds(list(pred[0][i]))
+                  sentence = sentence.partition("<start>")[2].partition("<end>")[0]
+                  eval_results.write(sentence + '\n')
+                  ref_target.append(reference.readline())
+                  results.append(sentence)
+          else:
+              for i in pred:
+                  sentences = tgt_vocab.sequences_to_texts(i)
+                  sentence = [j.partition("<start>")[2].partition("<end>")[0] for j in sentences]
+                  for w in sentence:
+                      eval_results.write(w + '\n')
+                      ref_target.append(reference.readline())
+                      results.append(w)
 
-        rogue = rouge_n(results, ref_target)
-        eval_results.close()
-        model.trainable = True
+      rogue = rouge_n(results, ref_target)
+      eval_results.close()
+      model.trainable = True
 
-        return rogue
+      return rogue
 
     def test_step():
-        model.trainable = False
-        results = []
-        ref_target = []
-        eval_results = open(TestResults, 'w+')
+      model.trainable = False
+      results = []
+      ref_target = []
+      eval_results = open(TestResults, 'w+')
 
-        for batch, (nodes, labels, node1, node2) in tqdm(enumerate(test_set)):
-            predictions = model(nodes, labels, node1, node2, targ=None, mask=None)
-            pred = predictions['outputs'].numpy().tolist()
+      for batch, (nodes, labels, node1, node2) in tqdm(enumerate(test_set)):
+          predictions = model(nodes, labels, node1, node2, targ=None, mask=None, training=False)  # Updated line
+          pred = [(predictions['outputs'].numpy().tolist())]
+          if args.sentencepiece == 'True':
+              for i in range(len(pred[0])):
+                  sentence = tgt_vocab.DecodeIds(list(pred[0][i]))
+                  sentence = sentence.partition("<start>")[2].partition("<end>")[0]
+                  eval_results.write(sentence + '\n')
+                  ref_target.append(reference.readline())
+                  results.append(sentence)
+          else:
+              for i in pred:
+                  sentences = tgt_vocab.sequences_to_texts(i)
+                  sentence = [j.partition("<start>")[2].partition("<end>")[0] for j in sentences]
+                  for w in sentence:
+                      eval_results.write(w + '\n')
+                      ref_target.append(reference.readline())
+                      results.append(w)
+      rogue = rouge_n(results, ref_target)
+      eval_results.close()
+      model.trainable = True
+      process_results(TestResults)
 
-            if args.sentencepiece == 'True':
-                for i in range(len(pred)):
-                    sentence = tgt_vocab.DecodeIds(list(pred[i]))
-                    sentence = sentence.partition("<start>")[2].partition("<end>")[0]
-                    eval_results.write(sentence + '\n')
-                    ref_target.append(reference.readline())
-                    results.append(sentence)
-            else:
-                for i in pred:
-                    sentences = tgt_vocab.sequences_to_texts([i])
-                    sentence = [j.partition("<start>")[2].partition("<end>")[0] for j in sentences]
-                    eval_results.write(sentence[0] + '\n')
-                    ref_target.append(reference.readline())
-                    results.append(sentence[0])
-
-        rogue = rouge_n(results, ref_target)
-        eval_results.close()
-        model.trainable = True
-        process_results(TestResults)
-
-        return rogue
+      return rogue, 0
 
     if args.mode == 'train':
         train_loss.reset_state()
+        train_accuracy.reset_state()
 
-        for batch, (nodes, labels, node1, node2,trg_output,targ) in tqdm(enumerate(dataset.repeat(-1))):
+        for batch, (nodes, labels, node1, node2, targ) in tqdm(enumerate(dataset.repeat(-1))):
             if PARAMS['step'] < steps:
                 start = time.time()
                 PARAMS['step'] += 1
 
-                batch_loss, acc, ppl = train_step(nodes, labels, node1, node2, trg_output, targ)
+                if args.decay is not None:
+                    optimizer.learning_rate = learning_rate(tf.cast(PARAMS['step'], dtype=tf.float32))
+
+                batch_loss, acc, ppl = train_step(nodes, labels, node1, node2, targ)
                 if batch % 100 == 0:
                     print('Step {} Learning Rate {:.4f} Train Loss {:.4f} '
                           'Accuracy {:.4f} Perplex {:.4f}'.format(PARAMS['step'],
@@ -186,11 +172,10 @@ def _train_gat_trans(args):
                                                                   acc.numpy(),
                                                                   ppl.numpy()))
                     print('Time {} \n'.format(time.time() - start))
-
-                # Log the training results
-                with open(log_file, 'a') as f:
-                    f.write(f"Step {PARAMS['step']} Train Accuracy: {acc.numpy()} "
-                            f"Loss: {train_loss.result()} Perplexity: {ppl.numpy()} \n")
+                # log the training results
+                tf.io.write_file(log_file,
+                                 f"Step {PARAMS['step']} Train Accuracy: {acc.numpy()}"
+                                 f" Loss: {train_loss.result()} Perplexity: {ppl.numpy()} \n")
 
                 if batch % args.eval_steps == 0:
                     metric_dict = eval_step(5)
@@ -201,18 +186,18 @@ def _train_gat_trans(args):
                 if batch % args.checkpoint == 0:
                     print("Saving checkpoint \n")
                     ckpt_save_path = ckpt_manager.save()
-                    with open(log_dir + '/' + args.lang + '_' + args.model + '_params', 'wb+') as fp:
+                    with open(params_path, 'wb+') as fp:
                         pickle.dump(PARAMS, fp)
             else:
                 break
 
-        rogue = test_step()
+        rogue, score = test_step()
         print('\n' + '---------------------------------------------------------------------' + '\n')
         print('Rogue {:.4f}'.format(rogue))
         print('\n' + '---------------------------------------------------------------------' + '\n')
 
     elif args.mode == 'test':
-        rogue = test_step()
+        rogue, score = test_step()
         print('\n' + '---------------------------------------------------------------------' + '\n')
         print('Rogue {:.4f}'.format(rogue))
         print('\n' + '---------------------------------------------------------------------' + '\n')
