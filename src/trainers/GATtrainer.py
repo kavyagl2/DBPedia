@@ -75,14 +75,14 @@ def _train_gat_trans(args):
 
     def train_step(nodes, labels, node1, node2, targ):
       with tf.GradientTape() as tape:
-          predictions = model(nodes, labels, node1, node2, targ, mask=None, training=True)  # Updated line
+          predictions = model(nodes, labels, node1, node2, targ, mask=None, training=True) #Updated Line
           predictions = model.metric_layer([predictions, targ])
           batch_loss = loss_layer([predictions, targ])
 
       gradients = tape.gradient(batch_loss, model.trainable_weights)
       optimizer.apply_gradients(zip(gradients, model.trainable_weights))
-      acc = model.metrics[0].result()
-      ppl = model.metrics[-1].result()
+      acc = model.metric_layer.metric_mean_fns[0][0].result()  # Corrected line to get accuracy metric
+      ppl = model.metric_layer.metric_mean_fns[-1][0].result()  # Corrected line to get perplexity metric
       batch_loss = train_loss(batch_loss)
 
       return batch_loss, acc, ppl
