@@ -81,8 +81,8 @@ def _train_gat_trans(args):
 
       gradients = tape.gradient(batch_loss, model.trainable_weights)
       optimizer.apply_gradients(zip(gradients, model.trainable_weights))
-      acc = model.metric_layer.metric_mean_fns[0][0].result()  # Corrected line to get accuracy metric
-      ppl = model.metric_layer.metric_mean_fns[-1][0].result()  # Corrected line to get perplexity metric
+      acc = model.metric_layer.metrics[0].result()  # Corrected line to get accuracy metric
+      ppl = model.metric_layer.metrics[0].result()  # Corrected line to get perplexity metric
       batch_loss = train_loss(batch_loss)
 
       return batch_loss, acc, ppl

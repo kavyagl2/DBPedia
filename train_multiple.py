@@ -49,11 +49,11 @@ if __name__ == "__main__":
     loss_layer = LossLayer(tgt_vocab_size, 0.1)
     if args.decay is not None:
       learning_rate = CustomSchedule(args.emb_dim, warmup_steps=args.decay_steps)
-      optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate, beta1=0.9, beta2=0.98,
-                                         epsilon=1e-9)
+      optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
+      
     else:
-      optimizer = tf.train.AdamOptimizer(learning_rate=args.learning_rate, beta1=0.9, beta2=0.98,
-                                         epsilon=1e-9)
+      optimizer = tf.keras.optimizers.Adam(learning_rate=args.learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
+
     step = 0
 
     # Save model parameters for future use
@@ -77,7 +77,8 @@ if __name__ == "__main__":
       name='train_accuracy')
 
     ckpt = tf.train.Checkpoint(
-      model=model
+      model=model,
+      optimizer = optimizer
     )
     ckpt_manager = tf.train.CheckpointManager(ckpt, OUTPUT_DIR, max_to_keep=5)
     if ckpt_manager.latest_checkpoint:
@@ -275,7 +276,7 @@ if __name__ == "__main__":
 
     ckpt = tf.train.Checkpoint(
       model=model,
-      optimizer=optimizer
+      optimizer=tf.keras.optimizers.Adam() # Use of standard Adam optimizer
     )
     ckpt_manager = tf.train.CheckpointManager(ckpt, OUTPUT_DIR, max_to_keep=5)
     if ckpt_manager.latest_checkpoint:

@@ -12,6 +12,7 @@ from src.utils.TransformerUtils import is_v2
 # Default value for INF
 INF = 1. * 1e7
 
+from src.utils.TransformerUtils import is_v2
 
 class _StateKeys(object):
   """Keys to dictionary storing the state of the beam search loop."""
@@ -61,7 +62,7 @@ class SequenceBeamSearch(object):
     """Beam search for sequences with highest scores."""
     state, state_shapes = self._create_initial_state(initial_ids, initial_cache)
 
-    finished_state = tf.while_loop(
+    finished_state = tf.stop_gradient(
       self._continue_search, self._search_step, loop_vars=[state],
       shape_invariants=[state_shapes], parallel_iterations=1, back_prop=False)
     finished_state = finished_state[0]
@@ -541,7 +542,7 @@ class SequenceBeamSearchV2(SequenceBeamSearch):
     """Beam search for sequences with highest scores."""
     state, state_shapes = self._create_initial_state(initial_ids, initial_cache)
 
-    finished_state = tf.while_loop(
+    finished_state = tf.stop_gradient(
       self._continue_search, self._search_step, loop_vars=[state],
       shape_invariants=[state_shapes], parallel_iterations=1, back_prop=False)
     finished_state = finished_state[0]
