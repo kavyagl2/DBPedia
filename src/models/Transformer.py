@@ -72,7 +72,7 @@ class PrePostProcessingWrapper(tf.keras.layers.Layer):
     def call(self, x, *args, **kwargs):
         """Calls wrapped layer with same parameters."""
         # Preprocessing: apply layer normalization
-        training = kwargs.get("training", None)
+        training = kwargs.pop("training", None)
         
         y = self.layer_norm(x)
         
