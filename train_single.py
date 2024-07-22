@@ -13,11 +13,9 @@ import tensorflow as tf
 # tf.enable_eager_execution()
 
 if __name__ == "__main__":
-  args = get_args()
-  global step
+    args = get_args()
 
-  if args.enc_type == 'transformer' and args.dec_type == "transformer":
-    _train_transformer(args)
-
-  elif ((args.enc_type == "gat") and (args.dec_type == "transformer")):
-    _train_gat_trans(args=args)
+    if args.enc_type == 'transformer' and args.dec_type == "transformer":
+        _train_transformer(args)
+    elif ((args.enc_type == "gat") and (args.dec_type == "transformer")):
+        _train_gat_trans(args=args)

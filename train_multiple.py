@@ -25,6 +25,9 @@ from src.utils.model_utils import CustomSchedule, _set_up_dirs
 from src.utils.rogue import rouge_n
 from src.utils.model_utils import process_results
 
+import os
+os.environ['TF_USE_LEGACY_KERAS'] = '1'
+
 # model paramteres
 
 if __name__ == "__main__":
@@ -49,10 +52,10 @@ if __name__ == "__main__":
     loss_layer = LossLayer(tgt_vocab_size, 0.1)
     if args.decay is not None:
       learning_rate = CustomSchedule(args.emb_dim, warmup_steps=args.decay_steps)
-      optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
+      optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
       
     else:
-      optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=args.learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
+      optimizer = tf.keras.optimizers.Adam(learning_rate=args.learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
 
     step = 0
 
@@ -78,7 +81,7 @@ if __name__ == "__main__":
 
     ckpt = tf.train.Checkpoint(
       model=model,
-      optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=learning_rate)
+      optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
     )
     ckpt_manager = tf.train.CheckpointManager(ckpt, OUTPUT_DIR, max_to_keep=5)
     if ckpt_manager.latest_checkpoint:
@@ -262,9 +265,9 @@ if __name__ == "__main__":
 
     if args.decay is not None:
       learning_rate = CustomSchedule(args.emb_dim, warmup_steps=args.decay_steps)
-      optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=learning_rate, beta_1= 0.9, beta_2= 0.98, epsilon=1e-9)
+      optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, beta_1= 0.9, beta_2= 0.98, epsilon=1e-9)
     else:
-      optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=args.learning_rate,
+      optimizer = tf.keras.optimizers.Adam(learning_rate=args.learning_rate,
                            beta_1=0.9, beta_2=0.98, epsilon=1e-9)
 
     train_loss = tf.keras.metrics.Mean(name='train_loss')
@@ -277,7 +280,7 @@ if __name__ == "__main__":
 
     ckpt = tf.train.Checkpoint(
       model=model,
-      optimizer=tf.keras.optimizers.legacy.Adam(learning_rate=learning_rate, beta_1= 0.9, beta_2= 0.98, epsilon=1e-9) # Use  of TensorFlow's Adam optimizer
+      optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate, beta_1= 0.9, beta_2= 0.98, epsilon=1e-9) # Use  of TensorFlow's Adam optimizer
     )
     ckpt_manager = tf.train.CheckpointManager(ckpt, OUTPUT_DIR, max_to_keep=5)
     if ckpt_manager.latest_checkpoint:
