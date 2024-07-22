@@ -1,0 +1,48 @@
+TensorFlow 2.0 Upgrade Script
+-----------------------------
+Converted 1 files
+Detected 2 issues that require attention
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+File: train_multiple.py
+--------------------------------------------------------------------------------
+train_multiple.py:216:29: WARNING: *.save requires manual check. (This warning is only applicable if the code saves a tf.Keras model) Keras model.save now saves to the Tensorflow SavedModel format by default, instead of HDF5. To continue saving to HDF5, add the argument save_format='h5' to the save() function.
+train_multiple.py:410:29: WARNING: *.save requires manual check. (This warning is only applicable if the code saves a tf.Keras model) Keras model.save now saves to the Tensorflow SavedModel format by default, instead of HDF5. To continue saving to HDF5, add the argument save_format='h5' to the save() function.
+================================================================================
+Detailed log follows:
+
+================================================================================
+--------------------------------------------------------------------------------
+Processing file 'train_multiple.py'
+ outputting to 'new_train_multiple.py'
+--------------------------------------------------------------------------------
+
+52:18: INFO: Renamed 'tf.keras.optimizers.Adam' to 'tf.keras.optimizers.legacy.Adam'
+55:18: INFO: Renamed 'tf.keras.optimizers.Adam' to 'tf.keras.optimizers.legacy.Adam'
+81:18: INFO: Renamed 'tf.keras.optimizers.Adam' to 'tf.keras.optimizers.legacy.Adam'
+216:29: WARNING: *.save requires manual check. (This warning is only applicable if the code saves a tf.Keras model) Keras model.save now saves to the Tensorflow SavedModel format by default, instead of HDF5. To continue saving to HDF5, add the argument save_format='h5' to the save() function.
+265:18: INFO: Renamed 'tf.keras.optimizers.Adam' to 'tf.keras.optimizers.legacy.Adam'
+267:18: INFO: Renamed 'tf.keras.optimizers.Adam' to 'tf.keras.optimizers.legacy.Adam'
+280:16: INFO: Renamed 'tf.keras.optimizers.Adam' to 'tf.keras.optimizers.legacy.Adam'
+296:19: INFO: tf.losses.get_regularization_loss requires manual check. tf.losses have been replaced with object oriented versions in TF 2.0 and after. The loss function calls have been converted to compat.v1 for backward compatibility. Please update these calls to the TF 2.0 versions.
+296:19: INFO: Renamed 'tf.losses.get_regularization_loss' to 'tf.compat.v1.losses.get_regularization_loss'
+410:29: WARNING: *.save requires manual check. (This warning is only applicable if the code saves a tf.Keras model) Keras model.save now saves to the Tensorflow SavedModel format by default, instead of HDF5. To continue saving to HDF5, add the argument save_format='h5' to the save() function.
+--------------------------------------------------------------------------------
+
+TensorFlow 2.0 Upgrade Script
+-----------------------------
+Converted 1 files
+Detected 0 issues that require attention
+--------------------------------------------------------------------------------
+================================================================================
+Detailed log follows:
+
+================================================================================
+--------------------------------------------------------------------------------
+Processing file 'Optimizers.py'
+ outputting to 'new_optimizers.py'
+--------------------------------------------------------------------------------
+
+13:15: INFO: Renamed 'tf.keras.optimizers.Adam' to 'tf.keras.optimizers.legacy.Adam'
+--------------------------------------------------------------------------------
+

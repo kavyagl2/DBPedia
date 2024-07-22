@@ -10,7 +10,7 @@ import tensorflow as tf
 K = tf.keras.backend
 
 
-class LazyAdam(tf.keras.optimizers.Adam):
+class LazyAdam(tf.keras.optimizers.legacy.Adam):
   """Variant of the Adam optimizer that handles sparse updates more efficiently.
   The original Adam algorithm maintains two moving-average accumulators for
   each trainable variable; the accumulators are updated at every step.
